@@ -13,101 +13,58 @@ import androidx.activity.result.ActivityResult
 import androidx.activity.result.contract.ActivityResultContract
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.camera.core.CameraExecutor
+import androidx.camera.core.CameraSelector
+import androidx.camera.core.ImageAnalysis
+import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.content.ContextCompat
 import java.security.Permission
 import java.net.Socket
 
+import androidx.camera.view.PreviewView
+import java.util.concurrent.Executors
 
 class MainActivity : AppCompatActivity() {
 
-
-    private val permissions  = arrayOf(
-        Manifest.permission.CAMERA,
-        Manifest.permission.RECORD_AUDIO
-    );
-
-    private val requestPerms = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {granted -> 
-            
-        val allGranted = granted.values.all {it}
-        if (allGranted) startCamera() else Toast.makeText(this,"Camera Permission is required ",Toast.LENGTH_SHORT).show()
-        
-    }
-
+    private  lateinit var preview : PreviewView;
+    private val cameraExecutor = Executors.newSingleThreadExecutor()
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        val  vv : VideoView = findViewById(R.id.videoView);
-        val act: Button = findViewById(R.id.actn);
+        preview = PreviewView(this);
+        setContentView(preview);
 
+        startCamera();
 
-
-        
-        havePermission()
-
-        setContentView(R.layout.activity_main)
-        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main)) { v, insets ->
-            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom)
-            insets
-        }
 
 
     }
-
-    private fun havePermission(){
-       val missing = permissions.filter{
-                    ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED;
-    }
-    if missing.isEmpty() startCamera() else requestPerms.launch(permissions)
-
-    }
-
-
     public fun startCamera(){
-        val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
-        cameraProviderFuture.addListener({
-            cameraProvider = cameraProviderFuture.get(),
-            bindUseCases(rebind)
-        }, ContextCompat.getMainExecutor(this))
+        val camerapf = ProcessCameraProvider.getInstance(this)
+        camerapf.addListener({
+            val cameraProvider = camerapf.get();
+            val prev = androidx.camera.core.Preview.Builder().build().also{
+                it.setSurfaceProvider(preview.surfaceProvider);
+            }
+            val analyze = ImageAnalysis.Builder()
+                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                .build()
+                .also{
+                    it.setAnalyzer(cameraExecutor,CameraUDPSender())
+                }
+            val camerSelector = CameraSelector.DEFAULT_BACK_CAMERA;
+
+            cameraProvider.unbindAll();
+            cameraProvider.bindToLifecycle(this,camerSelector,prev,analyze)
+        }, ContextCompat.getMainExecutor(this)
+        )
     }
 
+    override fun onDestroy() {
+        super.onDestroy()
+        cameraExecutor.shutdown()
+    }
 
-    private fun bindUseCases(rebind: Boolean) {
-val provider = cameraProvider ?: return
-if (rebind) provider.unbindAll()
-
-
-// Preview
-preview = Preview.Builder()
-.setTargetAspectRatio(AspectRatio.RATIO_16_9)
-.build()
-.also { it.setSurfaceProvider(binding.previewView.surfaceProvider) }
-
-
-// ImageAnalysis for per-frame access (YUV420)
-imageAnalysis = ImageAnalysis.Builder()
-.setTargetResolution(Size(1280, 720))
-.setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-.build()
-.also { analysis ->
-analysis.setAnalyzer(cameraExecutor) { image ->
-try {
-onFrame(image)
-} catch (t: Throwable) {
-Log.e("CameraX", "Analyzer error", t)
-} finally {
-image.close()
-}
-}
-}
-
-
-
- fun push(){
-Socket("10.0.0.1:8080",)
- Network.bindSocket(socket)
-}
-    
 }
